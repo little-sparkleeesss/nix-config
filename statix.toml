@@ -1,0 +1,12 @@
+# statix lint 配置 - https://github.com/nerdypepper/statix
+# 关掉与 NixOS / home-manager 惯用风格冲突的 lint。
+disabled = [
+  # NixOS/HM 模块里平铺写 `home.packages = ...; home.sessionPath = ...;` 是惯例；
+  # statix 偏好嵌套成 `home = { ... }`，但那不是常规写法，故关掉。
+  "repeated_keys",
+]
+ignore = [
+  ".git",
+  ".direnv",
+  "result",
+]

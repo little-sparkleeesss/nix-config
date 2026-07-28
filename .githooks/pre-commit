@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# pre-commit 钩子：保持 Nix 文件格式规范（nixfmt）且 lint 干净（statix、deadnix）。
+# 工具由 `nix develop`（见 flake.nix 的 devShells）或 NixOS 宿主提供。某工具不在 PATH
+# 时会跳过并告警，不会在没装 nix 的机器上卡住提交--强制发生在装了 nix 的地方
+# （如设备上，或 `nix develop` 内）。
+set -uo pipefail
+
+# 暂存的 .nix 文件（新增/复制/修改）。
+mapfile -t files < <(git diff --cached --name-only --diff-filter=ACM -- '*.nix')
+if [ "${#files[@]}" -eq 0 ]; then
+  exit 0
+fi
+
+status=0
+
+# 1) 格式化--RFC 166 风格（社区标准）。
+if command -v nixfmt >/dev/null 2>&1; then
+  if ! nixfmt --check "${files[@]}"; then
+    printf 'nixfmt: 格式不规范。修复：nixfmt %s\n' "${files[*]}" >&2
+    status=1
+  fi
+else
+  echo "nixfmt 不在 PATH--跳过格式检查（请用 'nix develop'）。" >&2
+fi
+
+# 2) lint--statix（配置在 statix.toml）。statix 一次只接收一个目标，且不会因告警而
+#    非零退出，故只要 errfmt 有输出就视为失败。
+if command -v statix >/dev/null 2>&1; then
+  for f in "${files[@]}"; do
+    out=$(statix check -o errfmt "$f" 2>&1) || true
+    if [ -n "$out" ]; then
+      printf '%s\n' "$out" >&2
+      printf 'statix: %s 存在问题（修复，或调整 statix.toml）\n' "$f" >&2
+      status=1
+    fi
+  done
+else
+  echo "statix 不在 PATH--跳过 lint。" >&2
+fi
+
+# 3) 死代码--跳过 lambda 属性集模式名（惯例上会保留 { config, pkgs, ... }，即便有些
+#    未使用）；仍会检查未使用的 `let` / `with` 绑定与普通 lambda 参数。
+if command -v deadnix >/dev/null 2>&1; then
+  if ! deadnix --no-lambda-pattern-names --fail "${files[@]}"; then
+    echo "deadnix: 发现未使用代码。请移除（或用 'deadnix -e' 编辑）。" >&2
+    status=1
+  fi
+else
+  echo "deadnix 不在 PATH--跳过死代码检查。" >&2
+fi
+
+exit $status
