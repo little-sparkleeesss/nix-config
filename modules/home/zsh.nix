@@ -41,6 +41,11 @@
         # $HOME/.npm-global/bin 已由 npm / claudeCode profile 通过 home.sessionPath 加入 PATH，
         # 这里无需手动 export。
         ''
+          # 终端只声明 xterm（8 色）时升级为 256 色，p10k 的 256 色配色才生效。
+          # TERM 是声明而非测量：现代 xterm 类终端实际都支持 256 色，但有些客户端把它
+          # 设成 xterm，导致 zsh/p10k 查 terminfo 以为只有 8 色、不发 256 色码。
+          # 真 8 色终端（如 TERM=linux）不会命中本条件。
+          [[ $TERM == xterm ]] && export TERM=xterm-256color
           source ${pkgs.zsh-powerlevel10k}/share/zsh-powerlevel10k/powerlevel10k.zsh-theme
           [[ -f ~/.p10k.zsh ]] && source ~/.p10k.zsh
         ''
