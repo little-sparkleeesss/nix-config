@@ -1,9 +1,13 @@
 { pkgs, ... }:
 {
   programs.zsh.enable = true;
+  # UPG（用户私有组）：与 Debian/Fedora 的 adduser 习惯一致，主组为同名私有组 ciallo，
+  # 而非 isNormalUser 默认的共享 users 组。
+  users.groups.ciallo = { };
   users.users.ciallo = {
     isNormalUser = true;
     description = "Ciallo";
+    group = "ciallo";
     extraGroups = [
       "wheel"
       "docker"
