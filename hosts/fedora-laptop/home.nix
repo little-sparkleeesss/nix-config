@@ -21,7 +21,14 @@
     ripgrep
     lazygit
     cc-switch
+    bitwarden-desktop
   ];
+
+  # Bitwarden SSH agent：socket 由 Bitwarden 运行时创建于 ~/.bitwarden-ssh-agent.sock
+  # （非 Flatpak 沙箱路径）。ssh 客户端不会自动发现它，需把 SSH_AUTH_SOCK 指过去。
+  # 注意：这会接管 SSH_AUTH_SOCK，覆盖 GNOME keyring / ssh-agent 等既有 agent；
+  #       不用 Bitwarden 时删掉本行即可恢复。
+  home.sessionVariables.SSH_AUTH_SOCK = "\${HOME}/.bitwarden-ssh-agent.sock";
 
   programs.home-manager.enable = true;
   programs.git = {
