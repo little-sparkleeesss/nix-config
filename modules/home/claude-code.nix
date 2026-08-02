@@ -35,9 +35,11 @@
       fi
       if [ "$needs_install" = "1" ]; then
         echo "[HM Activation] 正在安装 @anthropic-ai/claude-code ..."
-        # registry 与 prefix 都由 npm profile 的 ~/.npmrc 提供（npmmirror 镜像 + ~/.npm-global），
-        # 这里不再自带 --registry/--prefix，正经走 npm 配置。
-        $DRY_RUN_CMD ${pkgs.nodejs}/bin/npm install -g --no-fund --no-audit @anthropic-ai/claude-code
+        # 显式传 --prefix/--registry：activation 时 ~/.npmrc 尚不可用（home.file 链接未发生/未完成），
+        # 无法靠它提供 prefix/registry；不显式传则 npm 退回默认全局 prefix（nodejs 包的
+        # /nix/store/.../lib，只读）→ EACCES，整个 activation 中止、profile 不会链接。
+        # 值须与 npm.nix 的 ~/.npmrc 保持一致；~/.npmrc 仍供交互式 npm 使用。
+        $DRY_RUN_CMD ${pkgs.nodejs}/bin/npm install -g --prefix "$HOME/.npm-global" --registry https://registry.npmmirror.com --no-fund --no-audit @anthropic-ai/claude-code
       else
         echo "[HM Activation] claude-code 已存在且为 ELF，跳过安装"
       fi
