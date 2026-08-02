@@ -40,11 +40,18 @@
       # 命名约定 <user>@<host>，用 `home-manager switch --flake .#ciallo@fedora-laptop` 应用。
       homeConfigurations."ciallo@fedora-laptop" = home-manager.lib.homeManagerConfiguration {
         pkgs = nixpkgs.legacyPackages.x86_64-linux;
-        extraSpecialArgs = { inherit inputs; };
+        extraSpecialArgs = {
+          inherit inputs;
+          cc-switch = self.packages.x86_64-linux.cc-switch;
+        };
         modules = [
           ./hosts/fedora-laptop/home.nix
         ];
       };
+
+      # 自定义预编译包：cc-switch（Tauri 应用，用 autoPatchelfHook 打包官方 deb）。
+      # 用 `nix build .#cc-switch` 构建；进 home.packages 即可由 home-manager 装给用户。
+      packages.x86_64-linux.cc-switch = nixpkgs.legacyPackages.x86_64-linux.callPackage ./pkgs/cc-switch.nix { };
 
       # `nix develop` 提供 .githooks/pre-commit 用到的格式化/lint 工具（nixfmt/statix/deadnix）。
       devShells =
