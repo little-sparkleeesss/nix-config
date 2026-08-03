@@ -24,9 +24,12 @@
   # 本机专属包（不属于任何 profile）。git 由下方 programs.git 提供，无需重复列出。
   # cc-switch 由 flake 的 packages.x86_64-linux.cc-switch（autoPatchelfHook 打包官方 deb）
   # 经 extraSpecialArgs 传入，见 flake.nix 与 pkgs/cc-switch.nix。
-  # bitwarden-desktop 取自 nixpkgs-unstable，稳定版所用 electron 较老，已 EOL，需放行 insecure，
-  # unstable 较新。见 flake.nix 的 nixpkgs-unstable input。
+  # vscode 与 bitwarden-desktop 取自 nixpkgs-unstable（见 flake.nix 的 nixpkgs-unstable
+  # input）：vscode 更新频繁走 unstable；bitwarden 是稳定版所用 electron 较老、已 EOL。
   home.packages = with pkgs; [
+    # vscode 是微软官方构建（闭源），unfree 放行在 flake.nix 的 pkgs-unstable 实例上；
+    # 介意闭源可选 vscodium
+    pkgs-unstable.vscode
     ripgrep
     lazygit
     cc-switch

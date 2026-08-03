@@ -51,9 +51,14 @@
           inherit inputs;
           cc-switch = self.packages.x86_64-linux.cc-switch;
           syncclipboard = self.packages.x86_64-linux.syncclipboard;
-          # 独立的 unstable pkgs 实例，供个别包取用；HM 的 nixpkgs 模块只会
-          # 重新 import 主 nixpkgs（pkgs），不会动这个实例，故它保留 unstable 自己的默认 config。
-          pkgs-unstable = nixpkgs-unstable.legacyPackages.x86_64-linux;
+          # 独立的 unstable pkgs 实例，供个别包取用。用 `import` 而非 legacyPackages：
+          # unstable 的 vscode 是 unfree，而 legacyPackages 的 config 无法在 flake 里覆盖
+          # （HM 的 nixpkgs.config 只重新 import 主 nixpkgs，不作用于本实例），
+          # 所以带 allowUnfree 重新 import。代价是每次求值多 import 一份 nixpkgs-unstable（数秒）。
+          pkgs-unstable = import nixpkgs-unstable {
+            system = "x86_64-linux";
+            config.allowUnfree = true;
+          };
         };
         modules = [
           ./hosts/fedora-laptop/home.nix
