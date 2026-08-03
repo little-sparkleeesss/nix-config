@@ -1,8 +1,11 @@
 {
   description = "NixOS 配置";
   inputs = {
-    # 用 USTC 镜像的 nixos-26.05 频道 tarball（国内加速）；home-manager 复用同一份 nixpkgs。
-    nixpkgs.url = "tarball+https://mirrors.ustc.edu.cn/nix-channels/nixos-26.05/nixexprs.tar.xz";
+    # nixos-26.05 分支的 GitHub ref（commit-based）：lockfile 锁定具体 commit，不会像 channel
+    # tarball 那样被覆盖而 stale；narHash 只在主动 `nix flake update` 且分支前进时才变。
+    # store 产物仍走 USTC substituter 加速（见 modules/common.nix）；flake input 的源码 tarball
+    # 首次 fetch 走 GitHub（一次性，缓存进 /nix/store）。home-manager 复用同一份 nixpkgs。
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     home-manager = {
       url = "github:nix-community/home-manager/release-26.05";
       inputs.nixpkgs.follows = "nixpkgs";
