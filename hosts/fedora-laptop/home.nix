@@ -1,6 +1,11 @@
 # Fedora 宿主：standalone home-manager（无 configuration.nix 兄弟；系统级由 Fedora/dnf 管）。
 # 复用 modules/home/* 的 profile，与 NixOS 宿主共用同一套用户环境配置。
-{ pkgs, cc-switch, ... }:
+{
+  pkgs,
+  cc-switch,
+  syncclipboard,
+  ...
+}:
 {
   imports = [
     ../../modules/home/zsh.nix
@@ -21,6 +26,7 @@
     ripgrep
     lazygit
     cc-switch
+    syncclipboard
     bitwarden-desktop
   ];
 
