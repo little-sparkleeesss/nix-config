@@ -10,6 +10,11 @@
 #
 #   2. .NET 运行时通过 dlopen 动态加载部分系统库（openssl 等），dlopen 不走 RPATH，所以仅靠
 #      autoPatchelf 补 RPATH 不够，必须由 makeBinaryWrapper 设 LD_LIBRARY_PATH 让运行时找到。
+#   3. Avalonia（X11 后端）在托管代码里 DllImport libX11/libXrandr/libXcursor/... 这些 X 库，
+#      同样是运行时 dlopen。Nix 的 glibc 加载器不读宿主发行版的 /etc/ld.so.cache（其 sysconfdir
+#      编译进 nix store），也不搜 /usr/lib64——所以宿主 Fedora 上的系统 X11 库对它不可见，
+#      必须在 wrapper 的 LD_LIBRARY_PATH 里提供，否则启动即 DllNotFoundException 崩溃。
+#      实测（podman 容器逐库枚举）：libX11 -> libICE -> libSM（+ libxkbcommon 等）依次必需。
 #
 # 依赖清单来自对 deb 内所有 ELF 跑 `readelf -d` 汇总的 NEEDED：
 #   硬依赖（DT_NEEDED，autoPatchelf 补 RPATH）：
@@ -21,9 +26,16 @@
 #     liblttng-ust.so.0 -> 仅 libcoreclrtraceptprovider.so（.NET EventPipe/LTTng trace provider）
 #       需要。该 provider 是按需 dlopen 的可选组件，不加载也能正常运行，故用
 #       autoPatchelfIgnoreMissingDeps 忽略，避免把 lttng-ust/liburcu 拖进 closure。
-#   软依赖（.NET 运行时 dlopen，靠 LD_LIBRARY_PATH）：
+#   软依赖（.NET 运行时 / Avalonia 托管代码 dlopen，靠 LD_LIBRARY_PATH）：
 #     libssl.so.3 -> openssl（HTTPS/S3 加密，核心功能必需）
-#     libicuuc -> icu（全球化；找不到则 .NET 自动 fallback 到 invariant mode）
+#     libicuuc -> icu（全球化；.NET 8 找不到 libicu 会直接 FailFast 崩溃，不自动 fallback
+#       invariant，故必须由下方 makeBinaryWrapper 的 LD_LIBRARY_PATH 提供 icu）
+#     libX11/libXcb/libXau/libXdmcp/libXrandr/libXext/libXrender/libXfixes/libXinerama/
+#     libXi/libXtst/libXt/libXcursor/libXcomposite/libXdamage -> Avalonia.X11 的 DllImport
+#     libICE/libSM -> Avalonia 的 X11 会话管理（IceAddConnectionWatch）
+#     libxkbcommon -> 键盘映射
+#     libGL（libglvnd）/libvulkan -> Skia 渲染尝试用 GL/Vulkan 加速，找不到时 Avalonia
+#       自动回退软件渲染，非必需但给出可用的加载路径
 {
   lib,
   stdenv,
@@ -37,9 +49,25 @@
   openssl,
   icu,
   libx11,
-  libxt,
-  libxtst,
+  libxcb,
+  libxau,
+  libxdmcp,
+  libxrandr,
+  libxext,
+  libxrender,
+  libxfixes,
   libxinerama,
+  libxi,
+  libxtst,
+  libxt,
+  libxcursor,
+  libxcomposite,
+  libxdamage,
+  libxkbcommon,
+  libice,
+  libsm,
+  libglvnd,
+  vulkan-loader,
 }:
 stdenv.mkDerivation (finalAttrs: {
   pname = "syncclipboard";
@@ -51,7 +79,7 @@ stdenv.mkDerivation (finalAttrs: {
   };
 
   # autoPatchelfHook：给所有 ELF 补 RPATH 找到硬依赖库。
-  # makeBinaryWrapper：包一层设 LD_LIBRARY_PATH（.NET dlopen 软依赖），且不破坏 apphost 路径解析。
+  # makeBinaryWrapper：包一层设 LD_LIBRARY_PATH（.NET/Avalonia dlopen 软依赖），且不破坏 apphost 路径解析。
   # dpkg：解包 deb。
   nativeBuildInputs = [
     autoPatchelfHook
@@ -59,17 +87,34 @@ stdenv.mkDerivation (finalAttrs: {
     dpkg
   ];
 
-  # 仅列硬依赖（DT_NEEDED）。openssl/icu 是 dlopen 软依赖，不进 buildInputs（autoPatchelf 用不到），
-  # 改由下方 makeBinaryWrapper 的 LD_LIBRARY_PATH 提供。
+  # 硬依赖（DT_NEEDED）进 buildInputs 由 autoPatchelf 补 RPATH；
+  # X 库/glvnd/vulkan-loader 同时是 Avalonia 托管代码的 dlopen 目标，
+  # 由下方 makeBinaryWrapper 的 LD_LIBRARY_PATH 提供（见文件头注释 3）。
   buildInputs = [
     fontconfig
     gcc-unwrapped
     stdenv.cc.cc.lib
     zlib
     libx11
-    libxt
-    libxtst
+    libxcb
+    libxau
+    libxdmcp
+    libxrandr
+    libxext
+    libxrender
+    libxfixes
     libxinerama
+    libxi
+    libxtst
+    libxt
+    libxcursor
+    libxcomposite
+    libxdamage
+    libxkbcommon
+    libice
+    libsm
+    libglvnd
+    vulkan-loader
   ];
 
   # liblttng-ust.so.0 仅 .NET 的 trace provider（libcoreclrtraceptprovider.so）按需 dlopen，
@@ -103,13 +148,39 @@ stdenv.mkDerivation (finalAttrs: {
     cp -r deb/usr/share/icons/hicolor $out/share/icons/
     cp -r deb/usr/share/metainfo/. $out/share/metainfo/
 
-    # makeBinaryWrapper：execve 原二进制（/proc/self/exe 仍指向它，apphost 能定位同目录 dll），
-    # 同时 --prefix LD_LIBRARY_PATH 让 .NET 运行时 dlopen 找到 openssl（HTTPS 加密）/icu。
+    # makeBinaryWrapper：execve 原二进制（/proc/self/exe 仍指向它，apphost 能定位同目录 dll）。
+    # --set DOTNET_ReadyToRun 0：禁用 ReadyToRun。微软预编译的 R2R native 代码与 nix 的
+    #   glibc/libstdc++ 不兼容，CoreCLR 加载 System.Private.CoreLib.dll 的 R2R 段会判
+    #   "incorrect format" 崩成 0x8007000B；禁用后强制从 IL 重新 JIT。
+    #   （nixpkgs 的 dotnet-runtime 改 assembly PE 头 machine type=0xfd1d 达到同样效果；env var 更简单。）
+    # --prefix LD_LIBRARY_PATH：让 .NET 运行时 dlopen 找到 openssl（HTTPS 加密）/icu（全球化），
+    #   以及 Avalonia 托管代码 dlopen 的 X11 库族（libX11/libXrandr/libXcursor/libICE/...，见文件头）。
     makeBinaryWrapper $out/lib/syncclipboard/SyncClipboard.Desktop.Default $out/bin/syncclipboard \
+      --set DOTNET_ReadyToRun 0 \
       --prefix LD_LIBRARY_PATH : "${
         lib.makeLibraryPath [
           openssl
           icu
+          libx11
+          libxcb
+          libxau
+          libxdmcp
+          libxrandr
+          libxext
+          libxrender
+          libxfixes
+          libxinerama
+          libxi
+          libxtst
+          libxt
+          libxcursor
+          libxcomposite
+          libxdamage
+          libxkbcommon
+          libice
+          libsm
+          libglvnd
+          vulkan-loader
         ]
       }"
 

@@ -5,6 +5,24 @@
 # 依赖清单来自 `readelf -d` 的 NEEDED：libwebkit2gtk-4.1/libsoup-3.0/javascriptcoregtk-4.1
 # （-> webkitgtk_4_1，它同时提供 webkit2gtk-4.1 与 javascriptcoregtk-4.1，并传播 libsoup_3）、
 # gtk3、glib、gdk-pixbuf、cairo、openssl、xz，以及 libgcc_s（-> gcc-unwrapped）。
+# 另有运行时 dlopen 的 libayatana-appindicator3（Tauri 托盘，非 NEEDED），见下 preFixup 的 gappsWrapperArgs。
+#
+# WebKitWebProcess 空白窗口问题的修复（EGL vendor）：
+#   WebKit 的渲染进程（WebKitWebProcess）启动时要创建默认 EGL display（WebCore::
+#   PlatformDisplayDefault::create），失败即 abort（journal 里能看到 "Could not create
+#   default EGL display: EGL_BAD_PARAMETER. Aborting..."），主窗口空白。
+#   根因是 nix 版 libEGL（libglvnd）的 EGL vendor 加载链在 Fedora 宿主上断掉：
+#     - glvnd 的 vendor 搜索路径（libEGL.so.1 内编译期字符串）为
+#       __EGL_VENDOR_LIBRARY_DIRS -> /run/opengl-driver/share/glvnd/egl_vendor.d ->
+#       /etc/glvnd/egl_vendor.d -> /usr/share/glvnd/egl_vendor.d；
+#     - 宿主 /etc/glvnd/egl_vendor.d 为空，/usr/share/glvnd/egl_vendor.d 有 Fedora 的
+#       50_mesa.json/10_nvidia.json，但其 library_path 是相对名（libEGL_mesa.so.0），
+#       nix 加载器不读宿主 ld.so.cache 也不搜 /usr/lib64 -> dlopen 失败 -> 无可用 vendor
+#       -> eglGetDisplay(EGL_DEFAULT_DISPLAY) 返回 EGL_BAD_PARAMETER；
+#   修复：把 mesa 拉进 closure，用 __EGL_VENDOR_LIBRARY_DIRS 指向 mesa store 路径的
+#   egl_vendor.d（其 50_mesa.json 的 libEGL_mesa.so.0 由 wrapper 的 LD_LIBRARY_PATH 提供），
+#   DRI 驱动（iris/swrast）走 mesa 自身编译期路径，无需额外设置。
+#   （注意：GLVND_EGL_CONFIGURATION_PATH 不是 glvnd 认的变量，勿用。）
 {
   lib,
   stdenv,
@@ -22,6 +40,9 @@
   openssl,
   xz,
   gcc-unwrapped,
+  libayatana-appindicator,
+  mesa,
+  libglvnd,
 }:
 stdenv.mkDerivation (finalAttrs: {
   pname = "cc-switch";
@@ -49,7 +70,29 @@ stdenv.mkDerivation (finalAttrs: {
     openssl
     xz
     gcc-unwrapped
+    mesa
+    libglvnd
   ];
+
+  # libappindicator-sys（Tauri 托盘图标）运行时 dlopen libayatana-appindicator3.so.1，
+  # 不在 DT_NEEDED 里 -> autoPatchelf 抓不到；且 dlopen 不查 RUNPATH（buildInputs 进的是
+  # RUNPATH），故必须由 wrapGAppsHook3 的 wrapper 用 LD_LIBRARY_PATH 提供。
+  # mesa 进 LD_LIBRARY_PATH 同理：glvnd 按 50_mesa.json 里的相对名 dlopen libEGL_mesa.so.0。
+  # __EGL_VENDOR_LIBRARY_DIRS 指向 mesa 的 vendor json，见文件头注释。
+  # 注意：wrapGAppsHook3 的 setup-hook 不读 makeWrapperArgs，只读 gappsWrapperArgs 数组，
+  # 故在 preFixup 里追加到 gappsWrapperArgs（preFixup 先于 wrapGApps 的 wrapProgram 执行）。
+  preFixup = ''
+    gappsWrapperArgs+=(
+      --prefix LD_LIBRARY_PATH : ${
+        lib.makeLibraryPath [
+          libayatana-appindicator
+          mesa
+        ]
+      }
+      --set __EGL_VENDOR_LIBRARY_DIRS ${mesa}/share/glvnd/egl_vendor.d
+    )
+  '';
+
   dontConfigure = true;
   dontBuild = true;
   installPhase = ''
