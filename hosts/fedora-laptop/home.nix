@@ -54,5 +54,8 @@
     enable = true;
     settings.user.name = "little-sparkleeesss";
     settings.user.email = "little.sparkleeesss@gmail.com";
+    settings.user.signingKey = "BD9ED369997D7931";
+    settings.commit.gpgsign = true;
+    settings.tag.gpgSign = true;
   };
 }
