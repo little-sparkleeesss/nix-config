@@ -2,6 +2,7 @@
 # 复用 modules/home/* 的 profile，与 NixOS 宿主共用同一套用户环境配置。
 {
   pkgs,
+  pkgs-unstable,
   cc-switch,
   syncclipboard,
   ...
@@ -22,12 +23,14 @@
   # 本机专属包（不属于任何 profile）。git 由下方 programs.git 提供，无需重复列出。
   # cc-switch 由 flake 的 packages.x86_64-linux.cc-switch（autoPatchelfHook 打包官方 deb）
   # 经 extraSpecialArgs 传入，见 flake.nix 与 pkgs/cc-switch.nix。
+  # bitwarden-desktop 取自 nixpkgs-unstable，稳定版所用 electron 较老，已 EOL，需放行 insecure，
+  # unstable 较新。见 flake.nix 的 nixpkgs-unstable input。
   home.packages = with pkgs; [
     ripgrep
     lazygit
     cc-switch
     syncclipboard
-    bitwarden-desktop
+    pkgs-unstable.bitwarden-desktop
   ];
 
   # Bitwarden SSH agent：socket 由 Bitwarden 运行时创建于 ~/.bitwarden-ssh-agent.sock

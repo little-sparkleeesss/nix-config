@@ -6,6 +6,9 @@
     # store 产物仍走 USTC substituter 加速（见 modules/common.nix）；flake input 的源码 tarball
     # 首次 fetch 走 GitHub（一次性，缓存进 /nix/store）。home-manager 复用同一份 nixpkgs。
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    # 个别包从 unstable 取（与稳定 nixpkgs 并存）：flake.lock 锁具体 commit，主动 `nix flake
+    # update nixpkgs-unstable` 才前进。
+    nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
     home-manager = {
       url = "github:nix-community/home-manager/release-26.05";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -15,6 +18,7 @@
     {
       self,
       nixpkgs,
+      nixpkgs-unstable,
       home-manager,
       ...
     }@inputs:
@@ -47,6 +51,9 @@
           inherit inputs;
           cc-switch = self.packages.x86_64-linux.cc-switch;
           syncclipboard = self.packages.x86_64-linux.syncclipboard;
+          # 独立的 unstable pkgs 实例，供个别包取用；HM 的 nixpkgs 模块只会
+          # 重新 import 主 nixpkgs（pkgs），不会动这个实例，故它保留 unstable 自己的默认 config。
+          pkgs-unstable = nixpkgs-unstable.legacyPackages.x86_64-linux;
         };
         modules = [
           ./hosts/fedora-laptop/home.nix
