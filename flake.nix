@@ -51,6 +51,7 @@
           inherit inputs;
           cc-switch = self.packages.x86_64-linux.cc-switch;
           syncclipboard = self.packages.x86_64-linux.syncclipboard;
+          tabby-terminal = self.packages.x86_64-linux.tabby-terminal;
           # 独立的 unstable pkgs 实例，供个别包取用。用 `import` 而非 legacyPackages：
           # unstable 的 vscode 是 unfree，而 legacyPackages 的 config 无法在 flake 里覆盖
           # （HM 的 nixpkgs.config 只重新 import 主 nixpkgs，不作用于本实例），
@@ -73,6 +74,33 @@
       packages.x86_64-linux.syncclipboard =
         nixpkgs.legacyPackages.x86_64-linux.callPackage ./pkgs/syncclipboard.nix
           { };
+      # tabby-terminal 用重编译过的 libgbm：Chromium dlopen 的 libgbm（mesa-libgbm，
+      # 与主 mesa 不同版本）把 GBM 驱动路径编译成了 NixOS 的 /run/opengl-driver/lib/gbm
+      # （Fedora 宿主不存在，启动刷 "MESA-LOADER: failed to open dri" 警告；NixOS 靠
+      # 模块建 symlink 解决）。该路径硬编译进库、环境变量覆盖不生效，只能重编译。
+      # gbmDriversPath 软链主 mesa 的 GBM 驱动（dri_gbm.so），等价于 NixOS 的 symlink。
+      packages.x86_64-linux.tabby-terminal =
+        let
+          pkgs = nixpkgs.legacyPackages.x86_64-linux;
+          # farm 引用 stock mesa（未扩展 pkgs）：不能引用 pkgs' 的 mesa（会与 libgbm
+          # 形成 derivation 依赖环，求值即 infinite recursion）。stock mesa 及旧 libgbm
+          # 会因此留在闭包里，但都是已缓存的 store 路径（cc-switch 等在用），零实际成本。
+          gbmDriversPath = pkgs.runCommand "gbm-drivers-path" { } ''
+            mkdir -p $out/lib/gbm
+            ln -s ${pkgs.mesa}/lib/gbm/* $out/lib/gbm/
+          '';
+          libgbm = pkgs.libgbm.overrideAttrs (old: {
+            mesonFlags =
+              (builtins.filter (f: !(builtins.isString f && nixpkgs.lib.hasPrefix "-Dgbm-backends-path=" f)) (
+                old.mesonFlags or [ ]
+              ))
+              ++ [
+                "-Dgbm-backends-path=${gbmDriversPath}/lib/gbm"
+              ];
+          });
+          pkgs' = pkgs.extend (_: _: { inherit libgbm; });
+        in
+        pkgs'.callPackage ./pkgs/tabby-terminal.nix { };
 
       # `nix develop` 提供 .githooks/pre-commit 用到的格式化/lint 工具（nixfmt/statix/deadnix）。
       devShells =
